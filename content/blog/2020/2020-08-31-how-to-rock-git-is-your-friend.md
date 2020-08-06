@@ -3,7 +3,7 @@ title = 'How to rock: Doing the right thing'
 date = 2020-08-31T13:55:39z
 draft = true
 [taxonomies]
-tags = [ "kde", "development", "tutorial" ]
+tags = [ "kde", "development", "tutorial", "how-to-rock" ]
 [extra]
 header = "/assets/how_to_rock/maintain.jpg"
 +++
@@ -34,7 +34,7 @@ I'll start throwing some good practices of code development and contribution, an
 
 ### Code practices
 
-- **Encapsulate magic numbers**, it's much easier to explain that in code:
+- **Encapsulate magic variables**, it's much easier to explain that in code:
   ```cpp
   ...// First version
     start_communication(0, 1, 232);
@@ -46,12 +46,21 @@ I'll start throwing some good practices of code development and contribution, an
         RequestStatus = 232,
     }
     ...
+    uint8_t vid = 0;
+    uint8_t cid = 1;
+    start_communication(vid, cid, Messages::RequestStatus);
+    // Reviewer: What is vid ? What is cid ?
+
+  ...//Final version
+    ...
     uint8_t vehicle_id = 0;
     uint8_t component_id = 1;
     start_communication(vehicle_id, component_id, Messages::RequestStatus);
   ```
   As you can usee, the second versions makes everything more readable, we know that we are starting the communication with a vehicle that has an id of 0 and the vehicle probably contains a component that id is 1, and while calling this function we are also requesting the status. Much better than 0, 1 and 232 right ?
   This will help the reviewer to understand what is the meaning of such numbers and also developers that will touch this code in the future.
+  As you say in the last review, you also should avoid variables that are single variables or really short abbreviations, is much harder to understand this: $$C^2 = A^2 + B^2$$
+  over this: $$hypotenuse^2 = catheti_1^2 + catheti_2^2$$
 
 - **Avoid multiple arguments**, that's also an easier thing to explain with code:
     ```cpp
@@ -87,6 +96,153 @@ I'll start throwing some good practices of code development and contribution, an
     ```
 
     Both second and C++20 alternatives are valid for a better readability of the code, to choose between both alternatives will depend how are you going to design your API, probably if you are more familiar with the Qt library, the original second version appears to be the most common, the C++20 alternative appears to be a bit more verbose but can be useful to avoid multiple function calls and helpful when dealing with a simpler code base or not development an library.
+
+- **Encapsulate code when necessary**, try to break functions in a more readable and explanatory way.
+    ```cpp
+    ...// Original version
+    bool Serial::start_serial_communication() {
+        // Check if we are open to talk
+        if (!_port || _port->register() != 0xb0001) {
+            log("Serial port is not open!");
+            return false;
+        }
+
+        // Send a 10ms serial break signal
+        _port->set_break_enabled(true);
+        msleep(10);
+        _port->set_break_enabled(false);
+        usleep(10);
+        // Send intercalated binary for detection
+        _port->write('U');
+        _port->flush();
+
+        // Send start AT command
+        _port->write("AT+start");
+    }
+
+    // Reviewer: Try to make it more readable encapsulating
+    //            some functionalities
+
+    ...// Second version
+    bool Serial::start_serial_communication() {
+        if (!is_port_open()) {
+            log("Serial port is not open!");
+            return false;
+        }
+
+        force_baudrate_detection();
+        send_message(MESSAGE::Start)
+    }
+    ```
+    As you can see, the reason behind each block of code is much more clear now, and with that, the comments are also not necessary anymore, the code is friendly and readable enough that's possible to understand it without any comments.
+
+- **Avoid comments**, that's a clickbait, comments are really necessary, but they may be unnecessary when you are doing something that's really obvious, and sometimes when something is not obvious, it's better to encapsulate it.
+    ```cpp
+        ...// Original version
+        void blink_routine() {
+            // Use the LED builtin
+            const int led_builtin = LED_BUILTIN;
+            // Configure ping to output
+            setPinAsOutput(led_builtin);
+
+            // Loop forever
+            while(true) {
+                // Turn the LED on
+                turnPinOn(led_builtin);
+                // Wait for a second
+                wait_seconds(1);
+                // Turn the LED off
+                turnPinOff(led_builtin);
+                // Wait for a second
+                wait_seconds(1);
+            }
+        }
+    ```
+    Before checking the final version, let me talk about some points:
+      - For each line of code that you see in this example you'll have a comment (like a parrot that repeat what we say), and the worst thing about these comments is that the content is exactly what you can read from the code! You can think that this kind of comment is dead code, something that has the same meaning as the code, but it does not run, resulting in a duplicated amount of lines, to maintain, if you forget to update each comment for each line of code, you'll have a comment that does not match with the code, in this will be pretty confuse for someone that's reading this code.
+      - One of the most important skills about writing comments, is to know when not to write it!
+      - A comment should bring a value for the code, if you can remove it and the code is understandable by a novice, the comment is not important.
+      - The could need to express what is the desired behaviour, to make it easy to understand and maintain it.
+
+    ```cpp
+    ...// Final version
+        void blink_routine() {
+            const int led_builtin = LED_BUILTIN;
+            setPinAsOutput(led_builtin);
+
+            while(true) {
+                turnPinOn(led_builtin);
+                wait_seconds(1);
+                turnPinOff(led_builtin);
+                wait_seconds(1);
+            }
+        }
+    ```
+
+    There is a good video about this subject by [Walter E. Brown in cppcon 2017, "Whitespace ≤ Comments ＜＜ Code"](https://www.youtube.com/watch?v=NLebZ3XT92E).
+
+    And to finish, you should not avoid comments, you should understand when comments are necessary, like this:
+    ```cpp
+    // From ArduPilot - GPIO_RPI
+    void set_gpio_mode_alt(int pin, int alternative) {
+        // **Moved content from cpp for this example**
+        const uint8_t pins_per_register = 10;
+        // Calculates the position of the 3 bit mask in the 32 bits register
+        const uint8_t tree_bits_position_in_register = (pin%pins_per_register)*3;
+        /** Creates a mask to enable the alternative function based in the following logic:
+        *
+        * | Alternative Function | 3 bits value |
+        * |:--------------------:|:------------:|
+        * |      Function 0      |     0b100    |
+        * |      Function 1      |     0b101    |
+        * |      Function 2      |     0b110    |
+        * |      Function 3      |     0b111    |
+        * |      Function 4      |     0b011    |
+        * |      Function 5      |     0b010    |
+        */
+        const uint8_t alternative_value =
+            (alternative < 4 ? (alternative + 4) : (alternative == 4 ? 3 : 2));
+        // 0b00'000'000'000'000'000'000'ALT'000'000'000 enables alternative for the 4th pin
+        const uint32_t mask_with_alt = static_cast<uint32_t>(alternative_value) << tree_bits_position_in_register;
+        const uint32_t mask = 0b111 << tree_bits_position_in_register;
+        // Clear all bits in our position and apply our mask with alt values
+        uint32_t register_value = _gpio[pin / pins_per_register];
+        register_value &= ~mask;
+        _gpio[pin / pins_per_register] = register_value | mask_with_alt;
+    }
+    ```
+    Mostly of the lines in this code can be impossible to understand without access or reading the datasheet directly,
+    the comments help the programmers to understand what is going on and why, without the necessity of reverse engineer of the code.
+
+- **Final and generic tip**:
+  1. Try not to hinder other developers, make sure that:
+      1. Code compiles/runs before sending a PR (Pull-Request).
+      2. Code passes all tests (if they exist) before committing.
+      3. If you need to check in broken or incomplete code, use a branch, or somehow minimize the impact on other developers.
+
+  2. Commit code that is neat, portable, and documented:
+      1. Use appropriate, descriptive names for classes and variables.
+      2. Use doxygen or equivalent comments for every class and method, explain the purpose and intent of the class and how it fits into the overall architecture when writing docs.
+      3. Remove extraneous code that is not used (classes, and methods in classes).
+      4. It's also recommended to write short, to-the-point methods that encapsulate a very specific behavior, rather than long procedural functions.
+      5. If your methods are longer that 30-40 lines of code, or if they have extensive conditional blocks, switch statements or indentation levels, they might be broken up into several methods. But this is very subjective. Related to this is the importance of factoring out common procedures into their own classes or methods.
+      6. If you find yourself writing the same type of functionality multiple times, it's definitely time to refactor.
+
+  3. As a software developer, you always should have in mind that software should be:
+      1. Do not sacrifice maintainability over performance when not necessary
+      2. Less readable code result in more bugs and wrong usages
+      3. Make the code easy to newcomers
+      4. You're not the only one working in your code, if you think that you are, say that to the future version of yourself.
+
+## References
+- [CppCon 2019: Kate Gregory “Naming is Hard: Let's Do Better”](https://www.youtube.com/watch?v=MBRoCdtZOYg)
+- [CppCon 2018: Kate Gregory “Simplicity: Not Just For Beginners”](https://www.youtube.com/watch?v=n0Ak6xtVXno)
+- [CppCon 2018: Kate Gregory “What Do We Mean When We Say Nothing At All?”](https://www.youtube.com/watch?v=kYVxGyido9g)
+- [CppCon 2017: Lars Knoll “Qt as a C++ Framework: History, Present State and Future”](https://www.youtube.com/watch?v=YWiAUUblD34)
+- [CppCon 2017: Kate Gregory “10 Core Guidelines You Need to Start Using Now”](https://www.youtube.com/watch?v=XkDEzfpdcSg)
+- [API Design Principles - TQtC](https://wiki.qt.io/API_Design_Principles)
+- [Designing Qt-Style C++ APIs - Matthias Ettrich](https://doc.qt.io/archives/qq/qq13-apis.html)
+- [The Little Manual of API Design - Jasmin Blanchette](https://people.mpi-inf.mpg.de/~jblanche/api-design.pdf)
 
 
 <!--
